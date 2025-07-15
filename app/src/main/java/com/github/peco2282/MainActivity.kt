@@ -112,6 +112,13 @@ class MainActivity : ComponentActivity() {
         override fun onServiceDisconnected(name: ComponentName?) {
             wifiRssiMonitoringService = null
             isBound = false
+            setContent {
+                AppContent(
+                    null,
+                    ::startRssiMonitoringService,
+                    ::stopRssiMonitoringService
+                )
+            }
         }
     }
 
@@ -136,6 +143,7 @@ class MainActivity : ComponentActivity() {
         if (serviceIntent != null) {
             stopService(serviceIntent)
             Toast.makeText(this, "RSSI監視を停止しました", Toast.LENGTH_SHORT).show()
+            serviceIntent = null
         } else {
             Toast.makeText(this, "サービスが開始していません", Toast.LENGTH_SHORT).show()
         }
@@ -157,7 +165,7 @@ fun AppContent(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                val isStarted = (rssiStateFlow?.value ?: -1000) != -1000
+                val isStarted = (rssiStateFlow?.collectAsStateWithLifecycle() ?: remember { mutableIntStateOf(-1000) }).value != -1000
                 // RSSIを表示するComposable
                 RssiDisplay(rssiStateFlow)
 
