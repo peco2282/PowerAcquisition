@@ -9,6 +9,7 @@ import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
@@ -54,7 +55,7 @@ class WifiRssiMonitoringService : Service() {
         super.onCreate()
         createNotificationChannel()
 
-        handler = Handler()
+        handler = Handler(Looper.myLooper()!!)
 
         updateRssiRunnable = object : Runnable {
             override fun run() {
