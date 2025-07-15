@@ -181,7 +181,7 @@ class WifiRssiMonitoringService : Service() {
             .build()
     }
 
-   inner class WifiRssiServiceBinder : Binder() {
+    inner class WifiRssiServiceBinder : Binder() {
         val service: WifiRssiMonitoringService
             get() = this@WifiRssiMonitoringService
     }
