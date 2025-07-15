@@ -157,18 +157,21 @@ fun AppContent(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val isStarted = (rssiStateFlow?.value ?: -1000) != -1000
                 // RSSIを表示するComposable
                 RssiDisplay(rssiStateFlow)
 
                 Button(
                     onClick = onStartServiceClick,
-                    modifier = Modifier.padding(top = 16.dp)
+                    modifier = Modifier.padding(top = 16.dp),
+                    enabled = !isStarted
                 ) {
                     Text("RSSI監視を開始")
                 }
                 Button(
                     onClick = onStopServiceClick,
-                    modifier = Modifier.padding(top = 8.dp)
+                    modifier = Modifier.padding(top = 8.dp),
+                    enabled = isStarted
                 ) {
                     Text("RSSI監視を停止")
                 }
