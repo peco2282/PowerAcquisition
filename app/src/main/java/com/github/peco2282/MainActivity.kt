@@ -165,7 +165,8 @@ fun AppContent(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                val isStarted = (rssiStateFlow?.collectAsStateWithLifecycle() ?: remember { mutableIntStateOf(-1000) }).value != -1000
+                val isStarted = (rssiStateFlow?.collectAsStateWithLifecycle()
+                    ?: remember { mutableIntStateOf(-1000) }).value != -1000
                 // RSSIを表示するComposable
                 RssiDisplay(rssiStateFlow)
 
