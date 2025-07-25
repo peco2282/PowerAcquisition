@@ -127,9 +127,10 @@ class WifiRssiMonitoringService : Service() {
         if (wifiManager != null) {
             val wifiInfo = wifiManager.connectionInfo
             if (wifiInfo != null) {
+                _currentRssi.value = wifiInfo.rssi
                 val rssi = wifiInfo.rssi
-                _currentRssi.value = rssi // StateFlowを更新
-                val contentText = "RSSI: $rssi dBm"
+
+                val contentText = "RSSI: $rssi dBm\nSSID: ${MainActivity.getCurrentSSID().value}"
                 saveToExternalFilesDir(DATE_FORMATTER.format(Date()) + "," + rssi.toString())
                 Log.d("WifiRssiService", contentText)
 
@@ -157,7 +158,7 @@ class WifiRssiMonitoringService : Service() {
             val channel = NotificationChannel(CHANNEL_ID, name, importance)
             channel.description = description
 
-            val notificationManager = getSystemService<NotificationManager?>(NotificationManager::class.java)
+            val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager?.createNotificationChannel(channel)
         }
     }
