@@ -27,18 +27,27 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.github.peco2282.ui.theme.PowerAcquisitionTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 
 class MainActivity : ComponentActivity() {
     private var wifiManager: WifiManager? = null
     private var serviceIntent: Intent? = null
+
+    companion object {
+        const val PERMISSION_REQUEST_CODE: Int = 1001
+        private var currentSSID: MutableStateFlow<String> = MutableStateFlow("未確認")
+
+        fun getCurrentSSID(): StateFlow<String> = currentSSID
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,26 +66,30 @@ class MainActivity : ComponentActivity() {
         // サービスにバインドする前に、初期のUIを表示
         setContent {
             AppContent(
-                null, // サービスがまだ接続されていないのでnull
                 ::startRssiMonitoringService,
-                ::stopRssiMonitoringService
+                ::stopRssiMonitoringService,
+                ::getSSID,
+                ::getCurrentSSID,
+                null
             )
         }
 
-        checkLocationPermission()
+        checkPermission()
     }
 
-    private fun checkLocationPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                PERMISSION_REQUEST_CODE
-            )
+    private fun checkPermission() {
+        val perms = getDeniedPermissions(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.CHANGE_WIFI_STATE,
+        )
+        if (perms.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, perms.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
     }
+
+    private fun getDeniedPermissions(@Suppress("SameParameterValue") vararg permissions: String) = permissions
+        .filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String?>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -89,8 +102,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    val PERMISSION_REQUEST_CODE: Int = 1001
-
     private var wifiRssiMonitoringService: WifiRssiMonitoringService? = null
     private var isBound = false
 
@@ -102,9 +113,13 @@ class MainActivity : ComponentActivity() {
             // サービス接続後、UIの更新を開始
             setContent {
                 AppContent(
-                    wifiRssiMonitoringService?.currentRssi as StateFlow<Int>,
+//                    wifiRssiMonitoringService?.currentRssi as StateFlow<Int>,
                     ::startRssiMonitoringService,
-                    ::stopRssiMonitoringService
+                    ::stopRssiMonitoringService,
+                    ::getSSID,
+                    ::getCurrentSSID,
+//                    wifiRssiMonitoringService?.currentSSID as StateFlow<String>
+                    wifiRssiMonitoringService
                 )
             }
         }
@@ -114,9 +129,12 @@ class MainActivity : ComponentActivity() {
             isBound = false
             setContent {
                 AppContent(
-                    null,
+//                    null,
                     ::startRssiMonitoringService,
-                    ::stopRssiMonitoringService
+                    ::stopRssiMonitoringService,
+                    ::getSSID,
+                    ::getCurrentSSID,
+                    wifiRssiMonitoringService
                 )
             }
         }
@@ -148,14 +166,26 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "サービスが開始していません", Toast.LENGTH_SHORT).show()
         }
     }
+
+    private fun getSSID()  {
+        val ssid = wifiManager?.connectionInfo?.ssid?.replace("\"", "") ?: "未確認"
+        currentSSID.value = ssid
+    }
+
 }
 
 @Composable
 fun AppContent(
-    rssiStateFlow: StateFlow<Int>?,
+//    rssiStateFlow: StateFlow<Int>?,
     onStartServiceClick: () -> Unit,
-    onStopServiceClick: () -> Unit
+    onStopServiceClick: () -> Unit,
+    onSSIDClick: () -> Unit,
+    onGetSSID: () -> StateFlow<String>,
+//    ssidStateFlow: StateFlow<String>?,
+    service: WifiRssiMonitoringService?
 ) {
+    val rssiStateFlow = service?.currentRssi
+    val ssidStateFlow = onGetSSID()
     PowerAcquisitionTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
@@ -163,10 +193,15 @@ fun AppContent(
                     .fillMaxSize()
                     .padding(innerPadding),
                 verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val isStarted = (rssiStateFlow?.collectAsStateWithLifecycle()
                     ?: remember { mutableIntStateOf(-1000) }).value != -1000
+
+
+
+                ShowSSID(ssidStateFlow)
+
                 // RSSIを表示するComposable
                 RssiDisplay(rssiStateFlow)
 
@@ -184,9 +219,30 @@ fun AppContent(
                 ) {
                     Text("RSSI監視を停止")
                 }
+
+                Button(
+                    onClick = onSSIDClick,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text("SSIDを取得")
+                }
             }
         }
     }
+}
+
+@Composable
+private fun ShowSSID(ssidStateFlow: StateFlow<String>?) {
+    val text =
+        "SSID: ${ssidStateFlow?.collectAsStateWithLifecycle()?.value ?: remember { mutableStateOf("未確認") }.value}"
+
+    Text(
+        text = text,
+        modifier = Modifier.padding(16.dp),
+        style = TextStyle(
+            fontSize = TextUnit.Unspecified
+        )
+    )
 }
 
 @Composable
