@@ -9,10 +9,12 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,14 +39,16 @@ import com.github.peco2282.ui.theme.PowerAcquisitionTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-
+@RequiresApi(Build.VERSION_CODES.O)
 class MainActivity : ComponentActivity() {
     private var wifiManager: WifiManager? = null
     private var serviceIntent: Intent? = null
+//    private var isStarted = false
 
     companion object {
         const val PERMISSION_REQUEST_CODE: Int = 1001
-        private var currentSSID: MutableStateFlow<String> = MutableStateFlow("未確認")
+        private var currentSSID: MutableStateFlow<String> = MutableStateFlow("<unresolved>")
+        private var currentChannel: MutableStateFlow<Pair<Int, Int>> = MutableStateFlow(0 to -1)
 
         fun getCurrentSSID(): StateFlow<String> = currentSSID
     }
@@ -69,8 +73,10 @@ class MainActivity : ComponentActivity() {
                 ::startRssiMonitoringService,
                 ::stopRssiMonitoringService,
                 ::getSSID,
-                ::getCurrentSSID,
-                null
+                null,
+                currentSSID,
+                currentChannel,
+                false
             )
         }
 
@@ -117,9 +123,11 @@ class MainActivity : ComponentActivity() {
                     ::startRssiMonitoringService,
                     ::stopRssiMonitoringService,
                     ::getSSID,
-                    ::getCurrentSSID,
-//                    wifiRssiMonitoringService?.currentSSID as StateFlow<String>
-                    wifiRssiMonitoringService
+                    //                    wifiRssiMonitoringService?.currentSSID as StateFlow<String>
+                    wifiRssiMonitoringService,
+                    currentSSID,
+                    currentChannel,
+                    true
                 )
             }
         }
@@ -133,8 +141,10 @@ class MainActivity : ComponentActivity() {
                     ::startRssiMonitoringService,
                     ::stopRssiMonitoringService,
                     ::getSSID,
-                    ::getCurrentSSID,
-                    wifiRssiMonitoringService
+                    wifiRssiMonitoringService,
+                    currentSSID,
+                    currentChannel,
+                    false
                 )
             }
         }
@@ -142,13 +152,21 @@ class MainActivity : ComponentActivity() {
 
     private fun startRssiMonitoringService() {
         serviceIntent = Intent(this, WifiRssiMonitoringService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ContextCompat.startForegroundService(this, serviceIntent!!)
-        } else {
-            startService(serviceIntent!!)
-        }
+        ContextCompat.startForegroundService(this, serviceIntent!!)
+
         bindService(serviceIntent!!, connection, BIND_AUTO_CREATE)
         Toast.makeText(this, "RSSI監視を開始しました", Toast.LENGTH_SHORT).show()
+        setContent {
+            AppContent(
+                ::startRssiMonitoringService,
+                ::stopRssiMonitoringService,
+                ::getSSID,
+                wifiRssiMonitoringService,
+                currentSSID,
+                currentChannel,
+                true
+            )
+        }
     }
 
     private fun stopRssiMonitoringService() {
@@ -165,27 +183,53 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "サービスが開始していません", Toast.LENGTH_SHORT).show()
         }
+
+        setContent {
+            AppContent(
+                ::startRssiMonitoringService,
+                ::stopRssiMonitoringService,
+                ::getSSID,
+                wifiRssiMonitoringService,
+                currentSSID,
+                currentChannel,
+                false
+            )
+        }
     }
 
-    private fun getSSID()  {
+    private fun getSSID() {
         val ssid = wifiManager?.connectionInfo?.ssid?.replace("\"", "") ?: "未確認"
         currentSSID.value = ssid
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val scanResult = wifiManager?.scanResults.orEmpty().find { it.SSID == ssid } ?: return
+        val ch =
+            if (scanResult.frequency > 4000) channel5GHz(scanResult.frequency) else channel2400MHz(scanResult.frequency)
+        currentChannel.value = scanResult.frequency to ch
     }
 
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun AppContent(
 //    rssiStateFlow: StateFlow<Int>?,
     onStartServiceClick: () -> Unit,
     onStopServiceClick: () -> Unit,
     onSSIDClick: () -> Unit,
-    onGetSSID: () -> StateFlow<String>,
-//    ssidStateFlow: StateFlow<String>?,
-    service: WifiRssiMonitoringService?
+    service: WifiRssiMonitoringService?,
+    ssidStateFlow: StateFlow<String>,
+    channelStateFlow: StateFlow<Pair<Int, Int>>,
+    isStarted: Boolean,
 ) {
-    val rssiStateFlow = service?.currentRssi
-    val ssidStateFlow = onGetSSID()
+    val channel = service?.currentContext
+    val context by channel?.collectAsStateWithLifecycle()
+        ?: remember { mutableStateOf(WifiRssiMonitoringService.CONTEXT_INSTANCE) }
     PowerAcquisitionTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             Column(
@@ -195,15 +239,17 @@ fun AppContent(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                val isStarted = (rssiStateFlow?.collectAsStateWithLifecycle()
-                    ?: remember { mutableIntStateOf(-1000) }).value != -1000
+//                val isStarted = context.rssi != WifiRssiMonitoringService.CONTEXT_INSTANCE.rssi
+//                    (rssiStateFlow?.collectAsStateWithLifecycle()
+//                    ?: remember { mutableIntStateOf(-1000) }).value != -1000
 
 
-
-                ShowSSID(ssidStateFlow)
+//                ShowSSID(ssidStateFlow)
+                ShowChannel(context, ssidStateFlow, channelStateFlow)
 
                 // RSSIを表示するComposable
-                RssiDisplay(rssiStateFlow)
+                RssiDisplay(context)
+                Log.i("MainActivity", "isStarted: $isStarted")
 
                 Button(
                     onClick = onStartServiceClick,
@@ -245,14 +291,19 @@ private fun ShowSSID(ssidStateFlow: StateFlow<String>?) {
     )
 }
 
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
-fun RssiDisplay(rssiStateFlow: StateFlow<Int>?) {
+fun RssiDisplay(
+    context: WifiRssiMonitoringService.Companion.WifiContext,
+//    rssiStateFlow: StateFlow<WifiRssiMonitoringService.Companion.WifiContext>?
+) {
     // StateFlowをComposeのStateとして収集
     // `collectAsStateWithLifecycle` を使用すると、ライフサイクルに安全に収集できる
-    val rssi by rssiStateFlow?.collectAsStateWithLifecycle() ?: remember { mutableIntStateOf(-1000) }
-
+//    val rssi by rssiStateFlow?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(WifiRssiMonitoringService.Companion.CONTEXT_INSTANCE) }
+//    val context by rssiStateFlow?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(WifiRssiMonitoringService.Companion.CONTEXT_INSTANCE) }
+    val rssi = context.rssi
     val displayRssiText = when (rssi) {
-        -1000 -> {
+        -1000, -127 -> {
             "RSSI: 測定待機中 / サービス未開始"
         }
 
@@ -268,5 +319,27 @@ fun RssiDisplay(rssiStateFlow: StateFlow<Int>?) {
     Text(
         text = displayRssiText,
         modifier = Modifier.padding(16.dp)
+    )
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+@Composable
+fun ShowChannel(
+    context: WifiRssiMonitoringService.Companion.WifiContext,
+    ssidStateFlow: StateFlow<String>,
+    channelStateFlow: StateFlow<Pair<Int, Int>>,
+//    contextStateFlow: StateFlow<WifiRssiMonitoringService.Companion.WifiContext>?
+) {
+    val ssidSF by ssidStateFlow.collectAsStateWithLifecycle()
+    val channelSF by channelStateFlow.collectAsStateWithLifecycle()
+    val (ssid, freq, ch) = if (context.ssid == "<unresolved>")
+        Triple(ssidSF, channelSF.first, channelSF.second) else Triple(context.ssid, context.freq, context.ch)
+    ShowSSID(MutableStateFlow(ssid))
+    Text(
+        "Frequency: $freq Channel: $ch",
+        modifier = Modifier.padding(16.dp),
+        style = TextStyle(
+            fontSize = TextUnit.Unspecified
+        )
     )
 }
