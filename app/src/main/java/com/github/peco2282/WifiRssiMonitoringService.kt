@@ -285,45 +285,44 @@ class WifiRssiMonitoringService : Service() {
     }
 }
 
+val CHANNEL_2400MHz = mapOf(
+    2412 to 1,
+    2417 to 2,
+    2422 to 3,
+    2427 to 4,
+    2432 to 5,
+    2437 to 6,
+    2442 to 7,
+    2447 to 8,
+    2452 to 9,
+    2457 to 10,
+    2462 to 11,
+    2467 to 12,
+    2472 to 13,
+    2484 to 14
+)
 
-fun channel2400MHz(value: Int): Int = when (value) {
-    2412 -> 1
-    2417 -> 2
-    2422 -> 3
-    2427 -> 4
-    2432 -> 5
-    2437 -> 6
-    2442 -> 7
-    2447 -> 8
-    2452 -> 9
-    2457 -> 10
-    2462 -> 11
-    2467 -> 12
-    2472 -> 13
-    2484 -> 14
-    else -> -1
-}
+val CHANNEL_5000MHz = mapOf(
+    5180 to 36,
+    5200 to 40,
+    5220 to 44,
+    5240 to 48,
+    5260 to 52,
+    5280 to 56,
+    5300 to 60,
+    5320 to 64,
+    5500 to 100,
+    5520 to 104,
+    5540 to 108,
+    5560 to 112,
+    5580 to 116,
+    5600 to 120,
+    5620 to 124,
+    5640 to 128,
+    5660 to 132,
+    5680 to 136,
+)
 
-fun channel5GHz(value: Int): Int = when (value) {
-    5180 -> 36
-    5200 -> 40
-    5220 -> 44
-    5240 -> 48
-    5260 -> 52
-    5280 -> 56
-    5300 -> 60
-    5320 -> 64
-    5500 -> 100
-    5520 -> 104
-    5540 -> 108
-    5560 -> 112
-    5580 -> 116
-    5600 -> 120
-    5620 -> 124
-    5640 -> 128
-    5660 -> 132
-    5680 -> 136
+fun channel2400MHz(value: Int): Int = CHANNEL_2400MHz.getOrDefault(value, -1)
 
-    else -> -1
-}
-
+fun channel5GHz(value: Int): Int = CHANNEL_5000MHz.getOrDefault(value, -1)
