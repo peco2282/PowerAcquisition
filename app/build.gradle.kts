@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -53,4 +56,25 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+android.applicationVariants.configureEach {
+  val app = this
+  this.outputs.configureEach {
+    val out = this
+
+    val date = SimpleDateFormat("yyyyMMdd").format(Date())
+
+    val newFileName = "${rootProject.name}_${date}.apk"
+
+    val destDir = layout.buildDirectory.get().dir("apk")
+
+    app.assembleProvider.get().doLast {
+      copy {
+        from(out.outputFile!!)
+        into(destDir)
+        rename { newFileName }
+      }
+    }
+  }
 }
