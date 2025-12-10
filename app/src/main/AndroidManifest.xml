@@ -33,6 +33,8 @@
         </activity>
         <service android:name=".WifiRssiMonitoringService"
                  android:foregroundServiceType="location"/>
+        <service android:name=".WifiRssiListService"
+                 android:foregroundServiceType="location"/>
     </application>
 
 </manifest>
