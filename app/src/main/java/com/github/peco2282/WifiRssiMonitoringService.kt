@@ -5,6 +5,7 @@ import android.Manifest
 import android.R
 import android.app.*
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.net.wifi.WifiManager
 import android.os.*
@@ -12,6 +13,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.common.api.ResolvableApiException
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.LocationSettingsRequest
+import com.google.android.gms.location.Priority
+import com.google.android.gms.location.SettingsClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -54,6 +61,13 @@ class WifiRssiMonitoringService : Service() {
 
   var rssi = -1000
 
+  val locationRequest: LocationRequest = LocationRequest.Builder(10 * 1000)
+    .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+    .build()
+  var builder: LocationSettingsRequest.Builder = LocationSettingsRequest.Builder()
+    .addLocationRequest(locationRequest) // 適切なLocationRequestを使用
+
+  val client: SettingsClient by lazy { LocationServices.getSettingsClient(this) }
   override fun onCreate() {
     super.onCreate()
     createNotificationChannel()
@@ -78,6 +92,17 @@ class WifiRssiMonitoringService : Service() {
     Toast.makeText(this, txt, Toast.LENGTH_LONG).show()
     isStarted = true
     Log.i("WifiRssiService", "Service started")
+    client.checkLocationSettings(builder.build())
+      .addOnSuccessListener {
+        updateRssi()
+      }
+      .addOnFailureListener {
+        try {
+          if (it is ResolvableApiException) it.startResolutionForResult(MainActivity.getInstance(), 10001)
+        } catch (e: IntentSender.SendIntentException) {
+          e.printStackTrace()
+        }
+      }
     return START_STICKY
   }
 
@@ -143,7 +168,7 @@ class WifiRssiMonitoringService : Service() {
         "アプリが正確な位置情報を取得できません",
         Toast.LENGTH_LONG
       ).show()
-      return
+      startActivity(Intent(LOCATION_SERVICE))
     }
     val result = wifiManager.scanResults.find { it.SSID == ssid }
     val sb = StringBuilder("RSSI: $rssi dBm")
