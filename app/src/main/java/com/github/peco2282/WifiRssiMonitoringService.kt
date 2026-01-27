@@ -41,6 +41,10 @@ class WifiRssiMonitoringService : Service() {
     val FNAME_FORMATTER: DateFormat = SimpleDateFormat("'wifi_'yyyyMMdd_HHmmss.'csv'", Locale.JAPAN)
 
     val DATE_FORMATTER: DateFormat = SimpleDateFormat("yyyy-MM-dd_HH:mm:ss.SSS", Locale.JAPAN)
+
+    private var _instance: WifiRssiMonitoringService? = null
+
+    fun getInstance() = _instance!!
   }
 
   private var currentFName: String? = FNAME_FORMATTER.format(Date())
@@ -70,6 +74,7 @@ class WifiRssiMonitoringService : Service() {
   val client: SettingsClient by lazy { LocationServices.getSettingsClient(this) }
   override fun onCreate() {
     super.onCreate()
+    _instance = this
     createNotificationChannel()
 
     updateRssiRunnable = object : Runnable {
@@ -137,6 +142,7 @@ class WifiRssiMonitoringService : Service() {
     _currentRssi.value = -127
     currentFName = null
     isStarted = false
+    _instance = null
   }
 
   override fun onBind(intent: Intent?): IBinder {

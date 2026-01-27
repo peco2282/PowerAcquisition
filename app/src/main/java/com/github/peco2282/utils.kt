@@ -26,7 +26,9 @@ data class WifiResult(
   val capabilities: String,
   val channelWidth: Int,
   val macAddress: String,
-)
+) {
+  fun asContext(): WifiContext = WifiContext(rssi = rssi, ssid = ssid, freq = freq, ch = ch)
+}
 
 data class PingResult(
     val success: Boolean, // Pingが成功したか
@@ -126,6 +128,7 @@ suspend fun getPing(hostNameOrIp: String): PingResult = withContext(Dispatchers.
   var process: Process? = null
   val fullOutput = StringBuilder()
   val individualRtts = mutableListOf<Double>()
+
   try {
     process = Runtime.getRuntime().exec(command)
     val reader = BufferedReader(InputStreamReader(process.inputStream))

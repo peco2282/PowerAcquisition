@@ -26,6 +26,10 @@ class WifiRssiListService : Service() {
     const val ACTION_SCAN_ERROR: String = "com.peco2282.android.wifi.SCAN_ERROR"
     const val EXTRA_ERROR_MESSAGE: String = "com.peco2282.android.wifi.EXTRA_ERROR_MESSAGE"
     val TAG: String = WifiRssiListService::class.java.simpleName
+
+    private var _instance: WifiRssiListService? = null
+
+    fun getInstance() = _instance
   }
 
   private val wifiManager by lazy { applicationContext.getSystemService(WIFI_SERVICE) as WifiManager? }
@@ -49,11 +53,13 @@ class WifiRssiListService : Service() {
 
   override fun onCreate() {
     super.onCreate()
+    _instance = this
     startScan()
   }
 
   override fun onDestroy() {
     super.onDestroy()
+    _instance = null
     stopScan()
   }
 
@@ -64,21 +70,25 @@ class WifiRssiListService : Service() {
   }
 
   @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-  fun buildWifiCard(): List<WifiResult> {
+  fun buildWifiCard() {
+    repository.scan()
     val results = repository.getScanResults()
     val cache: Map<String, ScanResult> = results.associateBy { it.apMldMacAddress.toString() }
+    Log.i(TAG, "buildWifiCard: $results")
 
-    val request = RangingRequest.Builder().addAccessPoints(results).build()
+    val request = RangingRequest.Builder().addAccessPoints(results.subList(0, RangingRequest.getMaxPeers() - 1)).build()
     val wifiRangingManager = applicationContext.getSystemService(WIFI_RTT_RANGING_SERVICE) as WifiRttManager?
-    val answer = mutableListOf<WifiResult>()
     wifiRangingManager?.startRanging(
       request,
       applicationContext.mainExecutor,
       object : RangingResultCallback() {
         override fun onRangingFailure(code: Int) {
+          Log.w(TAG, "onRangingFailure: $code")
         }
 
         override fun onRangingResults(results: List<RangingResult>) {
+          val answer = mutableListOf<WifiResult>()
+
           Log.i(TAG, "onRangingResults: $results")
           for (result in results.filter { it.status == RangingResult.STATUS_SUCCESS }) {
             Log.d(TAG, result.toString())
@@ -98,11 +108,10 @@ class WifiRssiListService : Service() {
 
             answer.add(WifiResult(ssid, bssid, rssi, level, freq, ch, distanceMm, standard, timestamp, capabilities, channelWidth, mac))
           }
+          repository.updateWifiResults(answer)
         }
       }
     )
-
-    return answer.toList()
   }
 
   override fun onBind(intent: Intent?): IBinder = RSSIBinder()

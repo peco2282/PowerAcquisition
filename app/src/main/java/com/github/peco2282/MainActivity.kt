@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.github.peco2282.ui.theme.PowerAcquisitionTheme
 import kotlinx.coroutines.launch
 
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 class MainActivity : ComponentActivity() {
   var wifiManager: WifiManager? = null
   private var monitorServiceIntent: Intent? = null
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
     fun getInstance() = _instance!!
   }
 
+  @RequiresApi(Build.VERSION_CODES.TIRAMISU)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
@@ -63,7 +65,6 @@ class MainActivity : ComponentActivity() {
       AppContent(
         ::startRssiMonitoringService,
         ::stopRssiMonitoringService,
-        null,
         null,
         false
       )
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
       updateUiContent(true)
     }
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onServiceDisconnected(name: ComponentName?) {
       wifiRssiMonitoringService = null
       isBound = false
@@ -109,13 +111,14 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  @RequiresApi(Build.VERSION_CODES.TIRAMISU)
   private fun updateUiContent(isServiceRunning: Boolean) {
     setContent {
       AppContent(
         ::startRssiMonitoringService,
         ::stopRssiMonitoringService,
         if (isServiceRunning) wifiRssiMonitoringService else null,
-        wifiRssiListService,
+//        wifiRssiListService,
         isStarted = isServiceRunning
       )
     }
@@ -176,6 +179,7 @@ class MainActivity : ComponentActivity() {
   }
 }
 
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppContent(
@@ -183,7 +187,7 @@ fun AppContent(
   onStartServiceClick: () -> Unit,
   onStopServiceClick: () -> Unit,
   monitorService: WifiRssiMonitoringService?,
-  listService: WifiRssiListService?,
+//  listService: WifiRssiListService?,
   isStarted: Boolean,
 ) {
   val context by monitorService?.currentContext?.collectAsStateWithLifecycle()
@@ -231,7 +235,6 @@ fun AppContent(
           )
           1 -> WifiListScreen(
             innerPadding,
-            listService
           )
         }
       }
@@ -340,13 +343,19 @@ fun ShowContext(
 @Composable
 fun WifiListScreen(
   innerPadding: PaddingValues,
-  listService: WifiRssiListService?
 ) {
+  val listService = WifiRssiListService.getInstance()
   Log.i("WWW", listService.toString())
   if (listService != null) {
-    val card = listService.buildWifiCard()
+    listService.buildWifiCard()
+    val card = WifiScanRepository.getInstance().getWifiResults()
     Log.i("WWW", card.toString())
-    card.forEach { WifiCard(it) }
+    WifiChannelGraph(wifiResults = card, is5GHz = false)
+    WifiChannelGraph(wifiResults = card, is5GHz = true)
+    card.forEach {
+
+      WifiCard(it)
+    }
   }
 }
 
