@@ -17,8 +17,22 @@ import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.call
+import io.ktor.server.application.install
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.response.respond
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -31,11 +45,18 @@ import java.util.Locale
 class WifiRssiMonitoringService : Service() {
     @RequiresApi(Build.VERSION_CODES.O)
     companion object {
+        @Serializable
         data class WifiContext(
             val rssi: Int,
             val ssid: String,
             val freq: Int,
             val ch: Int,
+        )
+
+        @Serializable
+        data class StatusResponse(
+            val isStarted: Boolean,
+            val wifiContext: WifiContext?
         )
 
         @RequiresApi(Build.VERSION_CODES.O)
@@ -58,11 +79,15 @@ class WifiRssiMonitoringService : Service() {
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private var currentFName: String? = FNAME_FORMATTER.format(Date())
+    private var currentFName: String? = null
 
     private var handler: Handler? = null
     private var updateRssiRunnable: Runnable? = null
-    private var isStarted = false
+    private val _isStarted = MutableStateFlow(false)
+    val isMonitoringStarted: StateFlow<Boolean> get() = _isStarted
+
+    private var serverJob: Job? = null
+    private val serverScope = CoroutineScope(Dispatchers.IO)
 
     // RSSI値を公開するためのStateFlow
     private val _currentRssi = MutableStateFlow(-1000) // 初期値は無効なRSSI
@@ -87,37 +112,108 @@ class WifiRssiMonitoringService : Service() {
 
         updateRssiRunnable = object : Runnable {
             override fun run() {
-                if (!isStarted) return
+                if (!_isStarted.value) return
                 updateRssi()
                 handler!!.postDelayed(this, UPDATE_INTERVAL)
+            }
+        }
+        startHttpServer()
+    }
+
+    private fun startHttpServer() {
+        Log.i("WifiRssiService", "Starting HTTP Server on port 8080...")
+        serverJob = serverScope.launch {
+            try {
+                embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
+                    install(ContentNegotiation) {
+                        json()
+                    }
+                    routing {
+                        get("/") {
+                            call.respond(mapOf("status" to "ok", "service" to "WifiRssiMonitoringService"))
+                        }
+                        get("/start") {
+                            if (!_isStarted.value) {
+                                handler?.post {
+                                    startMonitoring()
+                                }
+                                call.respond(mapOf("message" to "Monitoring started"))
+                            } else {
+                                call.respond(mapOf("message" to "Monitoring already running"))
+                            }
+                        }
+                        get("/stop") {
+                            if (_isStarted.value) {
+                                handler?.post {
+                                    stopMonitoring()
+                                }
+                                call.respond(mapOf("message" to "Monitoring stopped"))
+                            } else {
+                                call.respond(mapOf("message" to "Monitoring not running"))
+                            }
+                        }
+                        get("/status") {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                call.respond(StatusResponse(_isStarted.value, _currentContext.value))
+                            } else {
+                                call.respond(mapOf("isStarted" to _isStarted.value))
+                            }
+                        }
+                    }
+                }.start(wait = true)
+            } catch (e: Exception) {
+                Log.e("WifiRssiService", "Failed to start HTTP Server", e)
             }
         }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    fun startMonitoring() {
+        if (_isStarted.value) return
+        currentFName = FNAME_FORMATTER.format(Date())
+        val data = "Date,RSSI"
+        val file = saveToExternalFilesDir(data)
+        val txt = "保存先: ${file?.absolutePath}"
+        Toast.makeText(this, txt, Toast.LENGTH_LONG).show()
+
         val notification = buildNotification("RSSI: 測定中...")
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+
+        handler?.post(updateRssiRunnable!!)
+        _isStarted.value = true
+        Log.i("WifiRssiService", "Monitoring started")
+    }
+
+    fun stopMonitoring() {
+        if (!_isStarted.value) return
+        handler?.removeCallbacks(updateRssiRunnable!!)
+        _isStarted.value = false
+        // 計測停止時もフォアグラウンドサービスを維持するため、通知を更新する
+        val notification = buildNotification("サーバー待機中...")
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+        Log.i("WifiRssiService", "Monitoring stopped")
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val notification = buildNotification("サーバー待機中...")
         startForeground(NOTIFICATION_ID, notification)
 
-        handler!!.post(updateRssiRunnable!!)
-        val data = "Date,RSSI"
-
-        val txt = "保存先: ${saveToExternalFilesDir(data)?.absolutePath}"
-        Toast.makeText(this, txt, Toast.LENGTH_LONG).show()
-        isStarted = true
-        Log.i("WifiRssiService", "Service started")
         return START_STICKY
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun saveToExternalFilesDir(data: String): File? {
+        val fName = currentFName ?: return null
         val appSpecificDir = getExternalFilesDir(null)
         if (appSpecificDir == null) {
             println("Service: 外部ストレージのアプリ専用ディレクトリが見つかりません。")
             return null
         }
 
-        val file = File(appSpecificDir, currentFName!!)
+        val file = File(appSpecificDir, fName)
         try {
             FileOutputStream(file, true).use { outputStream ->
                 OutputStreamWriter(outputStream, Charsets.UTF_8).use { writer ->
@@ -137,11 +233,10 @@ class WifiRssiMonitoringService : Service() {
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onDestroy() {
         super.onDestroy()
-        handler!!.removeCallbacks(updateRssiRunnable!!)
-        Log.i("WifiRssiService", "Service destroyed")
+        stopMonitoring()
+        serverJob?.cancel()
         _currentRssi.value = -1000
         currentFName = null
-        isStarted = false
     }
 
     override fun onBind(intent: Intent?): IBinder {

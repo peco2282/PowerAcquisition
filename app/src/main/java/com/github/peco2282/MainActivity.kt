@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
+import java.net.InetAddress
+import java.net.NetworkInterface
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -53,14 +55,38 @@ class MainActivity : ComponentActivity() {
         fun getCurrentSSID(): StateFlow<String> = currentSSID
     }
 
+    private fun getIPAddress(): String {
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val iface = interfaces.nextElement()
+                val addresses = iface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val addr = addresses.nextElement()
+                    if (!addr.isLoopbackAddress && addr is InetAddress) {
+                        val host = addr.hostAddress
+                        if (host != null && !host.contains(":")) {
+                            return host
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return "Unknown"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         enableEdgeToEdge()
 
+        val ipAddress = getIPAddress()
+
         setContent {
             val service by _wifiRssiMonitoringService.collectAsStateWithLifecycle()
-            val started by isStarted.collectAsStateWithLifecycle()
+            val serviceStarted by (service?.isMonitoringStarted ?: MutableStateFlow(false)).collectAsStateWithLifecycle()
 
             AppContent(
                 ::startRssiMonitoringService,
@@ -69,11 +95,15 @@ class MainActivity : ComponentActivity() {
                 service,
                 currentSSID,
                 currentChannel,
-                started
+                serviceStarted,
+                ipAddress
             )
         }
 
         checkPermission()
+        // サービスを自動開始してHTTPサーバーを立ち上げる
+        // 初回起動時は startMonitoring() は呼ばれないように修正済み
+        startRssiMonitoringService()
     }
 
     private fun checkPermission() {
@@ -102,7 +132,6 @@ class MainActivity : ComponentActivity() {
     }
 
     private val _wifiRssiMonitoringService = MutableStateFlow<WifiRssiMonitoringService?>(null)
-    private val isStarted = MutableStateFlow(false)
     private var isBound = false
 
     private val connection = object : ServiceConnection {
@@ -110,40 +139,38 @@ class MainActivity : ComponentActivity() {
             val binder = service as WifiRssiMonitoringService.WifiRssiServiceBinder
             _wifiRssiMonitoringService.value = binder.service
             isBound = true
-            isStarted.value = true
+            // isStarted.value = true // Service側で管理
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             _wifiRssiMonitoringService.value = null
             isBound = false
-            isStarted.value = false
+            // isStarted.value = false // Service側で管理
         }
     }
 
     private fun startRssiMonitoringService() {
-        serviceIntent = Intent(this, WifiRssiMonitoringService::class.java)
-        ContextCompat.startForegroundService(this, serviceIntent!!)
-
-        bindService(serviceIntent!!, connection, BIND_AUTO_CREATE)
+        if (serviceIntent == null) {
+            serviceIntent = Intent(this, WifiRssiMonitoringService::class.java)
+            ContextCompat.startForegroundService(this, serviceIntent!!)
+            bindService(serviceIntent!!, connection, BIND_AUTO_CREATE)
+        } else {
+            // サービスが既に起動している場合は、モニタリングのみ開始する
+            _wifiRssiMonitoringService.value?.startMonitoring()
+        }
         Toast.makeText(this, "RSSI監視を開始しました", Toast.LENGTH_SHORT).show()
-        isStarted.value = true
+        // isStarted.value = true // Service側で管理
     }
 
     private fun stopRssiMonitoringService() {
-        if (isBound) {
-            unbindService(connection)
-            isBound = false
-            _wifiRssiMonitoringService.value = null // Clear the service reference
-        }
-
         if (serviceIntent != null) {
-            stopService(serviceIntent)
-            Toast.makeText(this, "RSSI監視を停止しました", Toast.LENGTH_SHORT).show()
-            serviceIntent = null
+            // サービスを停止させない（サーバーを維持するため）
+            // stopService(serviceIntent)
+            _wifiRssiMonitoringService.value?.stopMonitoring()
+            Toast.makeText(this, "計測を停止しました", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, "サービスが開始していません", Toast.LENGTH_SHORT).show()
         }
-        isStarted.value = false
     }
 
     private fun getSSID() {
@@ -162,6 +189,13 @@ class MainActivity : ComponentActivity() {
         currentChannel.value = scanResult.frequency to ch
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isBound) {
+            unbindService(connection)
+            isBound = false
+        }
+    }
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
@@ -175,6 +209,7 @@ fun AppContent(
     ssidStateFlow: StateFlow<String>,
     channelStateFlow: StateFlow<Pair<Int, Int>>,
     isStarted: Boolean,
+    ipAddress: String
 ) {
     val channel = service?.currentContext
     val context by channel?.collectAsStateWithLifecycle()
@@ -188,6 +223,11 @@ fun AppContent(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
+                Text(
+                    text = "Control via Python: http://$ipAddress:8080/",
+                    style = TextStyle(fontSize = TextUnit.Unspecified),
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
 //                val isStarted = context.rssi != WifiRssiMonitoringService.CONTEXT_INSTANCE.rssi
 //                    (rssiStateFlow?.collectAsStateWithLifecycle()
 //                    ?: remember { mutableIntStateOf(-1000) }).value != -1000
@@ -198,6 +238,9 @@ fun AppContent(
 
                 // RSSIを表示するComposable
                 RssiDisplay(context)
+                if (isStarted) {
+                    Text("計測中...", style = TextStyle(color = androidx.compose.ui.graphics.Color.Red))
+                }
                 Log.i("MainActivity", "isStarted: $isStarted")
 
                 Button(

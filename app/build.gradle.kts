@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.0.0"
 }
 
 android {
@@ -37,6 +38,13 @@ android {
     buildFeatures {
         compose = true
     }
+
+    packaging {
+        resources {
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/io.netty.versions.properties"
+        }
+    }
 }
 
 dependencies {
@@ -49,6 +57,11 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    val ktor_version = "2.3.12"
+    implementation("io.ktor:ktor-server-core:$ktor_version")
+    implementation("io.ktor:ktor-server-netty:$ktor_version")
+    implementation("io.ktor:ktor-server-content-negotiation:$ktor_version")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktor_version")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
