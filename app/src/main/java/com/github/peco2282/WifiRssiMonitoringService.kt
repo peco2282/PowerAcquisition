@@ -36,17 +36,7 @@ class WifiRssiMonitoringService : Service() {
             val ssid: String,
             val freq: Int,
             val ch: Int,
-//            val bssid: String,
-//            val timestamp: Long,
-        ) {
-            fun `override`(
-                mutableRssi: MutableStateFlow<WifiContext>,
-                rssi: Int = this.rssi,
-                ssid: String = this.ssid,
-                freq: Int = this.freq,
-                ch: Int = this.ch,
-            ) = WifiContext(rssi, ssid, freq, ch).also { mutableRssi.value = it }
-        }
+        )
 
         @RequiresApi(Build.VERSION_CODES.O)
         val CONTEXT_INSTANCE = WifiContext(
@@ -170,7 +160,7 @@ class WifiRssiMonitoringService : Service() {
                 this.rssi = rssi
                 val ssid = wifiInfo.ssid.replace("\"", "")
 
-                _currentContext.value.override(_currentContext, rssi = rssi, ssid = ssid)
+                _currentContext.value = _currentContext.value.copy(rssi = rssi, ssid = ssid)
 
                 if (ActivityCompat.checkSelfPermission(
                         this,
@@ -220,8 +210,7 @@ class WifiRssiMonitoringService : Service() {
                             .append(freq)
                             .append(" MHz")
                     }
-                    _currentContext.value.override(
-                        _currentContext,
+                    _currentContext.value = _currentContext.value.copy(
                         freq = freq,
                         ch = ch
                     )

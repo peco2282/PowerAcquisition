@@ -23,8 +23,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -57,26 +57,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         enableEdgeToEdge()
-//        setContent {
-//            PowerAcquisitionTheme {
-//                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-//                    Greeting(
-//                        name = "Android",
-//                        modifier = Modifier.padding(innerPadding)
-//                    )
-//                }
-//            }
-//        }
-        // サービスにバインドする前に、初期のUIを表示
+
         setContent {
+            val service by _wifiRssiMonitoringService.collectAsStateWithLifecycle()
+            val started by isStarted.collectAsStateWithLifecycle()
+
             AppContent(
                 ::startRssiMonitoringService,
                 ::stopRssiMonitoringService,
                 ::getSSID,
-                null,
+                service,
                 currentSSID,
                 currentChannel,
-                false
+                started
             )
         }
 
@@ -108,45 +101,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private var wifiRssiMonitoringService: WifiRssiMonitoringService? = null
+    private val _wifiRssiMonitoringService = MutableStateFlow<WifiRssiMonitoringService?>(null)
+    private val isStarted = MutableStateFlow(false)
     private var isBound = false
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as WifiRssiMonitoringService.WifiRssiServiceBinder
-            wifiRssiMonitoringService = binder.service
+            _wifiRssiMonitoringService.value = binder.service
             isBound = true
-            // サービス接続後、UIの更新を開始
-            setContent {
-                AppContent(
-//                    wifiRssiMonitoringService?.currentRssi as StateFlow<Int>,
-                    ::startRssiMonitoringService,
-                    ::stopRssiMonitoringService,
-                    ::getSSID,
-                    //                    wifiRssiMonitoringService?.currentSSID as StateFlow<String>
-                    wifiRssiMonitoringService,
-                    currentSSID,
-                    currentChannel,
-                    true
-                )
-            }
+            isStarted.value = true
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            wifiRssiMonitoringService = null
+            _wifiRssiMonitoringService.value = null
             isBound = false
-            setContent {
-                AppContent(
-//                    null,
-                    ::startRssiMonitoringService,
-                    ::stopRssiMonitoringService,
-                    ::getSSID,
-                    wifiRssiMonitoringService,
-                    currentSSID,
-                    currentChannel,
-                    false
-                )
-            }
+            isStarted.value = false
         }
     }
 
@@ -156,24 +126,14 @@ class MainActivity : ComponentActivity() {
 
         bindService(serviceIntent!!, connection, BIND_AUTO_CREATE)
         Toast.makeText(this, "RSSI監視を開始しました", Toast.LENGTH_SHORT).show()
-        setContent {
-            AppContent(
-                ::startRssiMonitoringService,
-                ::stopRssiMonitoringService,
-                ::getSSID,
-                wifiRssiMonitoringService,
-                currentSSID,
-                currentChannel,
-                true
-            )
-        }
+        isStarted.value = true
     }
 
     private fun stopRssiMonitoringService() {
         if (isBound) {
             unbindService(connection)
             isBound = false
-            wifiRssiMonitoringService = null // Clear the service reference
+            _wifiRssiMonitoringService.value = null // Clear the service reference
         }
 
         if (serviceIntent != null) {
@@ -183,18 +143,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "サービスが開始していません", Toast.LENGTH_SHORT).show()
         }
-
-        setContent {
-            AppContent(
-                ::startRssiMonitoringService,
-                ::stopRssiMonitoringService,
-                ::getSSID,
-                wifiRssiMonitoringService,
-                currentSSID,
-                currentChannel,
-                false
-            )
-        }
+        isStarted.value = false
     }
 
     private fun getSSID() {
